@@ -23,7 +23,9 @@
 ;;; Commentary:
 
 ;; Usage:
-;; 
+;;
+;; Put every private configuration into ~/.emacs.d/private
+;; and make git ignoring the private dir.
 ;; (require-private)
 ;; This function requires all your private configuration files.
 ;; (find-private-configuration-file)
@@ -241,6 +243,8 @@ to use private package features." user-private-config-directory))))
 (defun find-private-configuration-file ()
   "Visit or create private configuration file."
   (interactive)
+  (if (not (file-exists-p user-private-config-directory))
+      (make-directory user-private-config-directory))
   (ido-find-file-in-dir user-private-config-directory))
 
 (defun clear-private-backup (sure remove-or-trash)

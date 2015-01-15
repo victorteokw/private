@@ -1,1 +1,5 @@
 #+Title: Private
+
+*all* you need is in private.el
+
+This package will be +is+ available on melpa.

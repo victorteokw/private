@@ -6,6 +6,7 @@
 ;; URL: https://github.com/cheunghy/private
 ;; Keywords: private, configuration, backup, recover
 ;; Package-Requires: ((aes "0.6"))
+;; Version: 0.1
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -22,71 +23,91 @@
 
 ;;; Commentary:
 
+;; Why do I need this?
+;;
+;; Sometimes you have need to sync private emacs configuration files
+;; between different PCs. These normally include corporation project
+;; configuration, corporation code, personal project code, etc.
+;;
+;; How private works?
+;; Private works by encrypt private configuration files with a password
+;; you specified.
+;;
 ;; Usage:
 ;;
 ;; Put every private configuration into ~/.emacs.d/private
 ;; and make git ignoring the private dir.
-;; (require-private)
+;; (private-require)
 ;; This function requires all your private configuration files.
-;; (find-private-configuration-file)
+;; (private-find-configuration-file)
 ;; This function creates or visits a private configuration file.
-;; (backup-private)
+;; (private-backup)
 ;; This function backups all your private configuration files.
 ;; So it's safe to put any private project related configuraiton on the
 ;; public git repo.
-;; (recover-private)
+;; (private-recover)
 ;; This function recovers all your private configuration files.
-;; (clear-private-backup)
+;; (private-clear-backup)
 ;; This function removes all your private configuration backup files.
 
 ;;; Code:
 
 (require 'aes)
 
-(defconst user-private-config-directory
+(defgroup private nil
+  "Private configurations."
+  :prefix "private-"
+  :group 'convenience)
+
+(defcustom private-config-directory
   (expand-file-name "private" user-emacs-directory)
-  "This directory is under `user-emacs-directory' and is the directory that
-contains all users' private configuration files. These normally include
-corporation project configuration, corporation code, personal project code
-etc.")
+  "The directory to find private config."
+  :group 'private
+  :type 'directory)
+
+(defcustom private-backup-directory
+  (expand-file-name "private-backup" user-emacs-directory)
+  "The directory to find private backup."
+  :group 'private
+  :type 'directory)
 
 (defconst user-private-backup-directory
   (expand-file-name "private-backup" user-emacs-directory)
   "This directory is under `user-emacs-directory' and is the directory that
 contains all users' private backup files. These files are encrypted with user
 specified password. These are used to recover user's private files on another
-computer.")
+computer.") ;; TODO delete
 
-(defun rq--load-directory (dir-name &optional error-string)
+(defun private--load-directory (dir-name &optional error-string)
   "Load all files from a directory."
   (or (file-directory-p dir-name)
       (error (or error-string "'%s' is neither a directory nor exist.")
              dir-name))
   (dolist (file (directory-files dir-name t "^[^.]"))
     (if (file-directory-p file)
-        (rq--load-directory file)
+        (private--load-directory file)
       (load-file file))))
 
-(defun rq--create-backup-dir (&optional error-string)
+(defun private--create-backup-dir (&optional error-string)
   "Create backup dir if needed."
-  (unless (and (file-exists-p user-private-backup-directory)
-               (file-directory-p user-private-backup-directory))
-    (if (file-exists-p user-private-backup-directory)
+  (unless (and (file-exists-p private-backup-directory)
+               (file-directory-p private-backup-directory))
+    (if (file-exists-p private-backup-directory)
         (error (or error-string "Private backup file '%s' is occupied."
-                   user-private-backup-directory)))
-    (make-directory user-private-backup-directory)))
+                   private-backup-directory)))
+    (make-directory private-backup-directory)))
 
-(defun rq--backup-file-name (config-file)
+(defun private--backup-file-name (config-file)
   "Convert CONFIG-FILE into backup file name."
   (expand-file-name (file-name-nondirectory config-file)
-                    user-private-backup-directory))
+                    private-backup-directory))
 
-(defun rq--config-file-name (backup-file)
+(defun private--config-file-name (backup-file)
   "Convert BACKUP-FILE into config file name."
   (expand-file-name (file-name-nondirectory backup-file)
-                    user-private-config-directory))
+                    private-config-directory))
 
-(defun rq--aes-key-from-password (password type-or-file Nk)
+(defun private--aes-key-from-password (password type-or-file Nk)
   "Return a key, generated from PASSWORD.
 This function does not suck."
   (let* (passwd passwdkeys (p ""))
@@ -123,7 +144,7 @@ This function does not suck."
     (substring (aes-cbc-encrypt passwd (make-string (lsh Nk 2) 0) passwdkeys Nk)
                (- (lsh Nk 2)))))
 
-(defun rq--aes-encrypt-current-buffer (password)
+(defun private--aes-encrypt-current-buffer (password)
   "Encrypt current buffer with PASSWORD.
 This function does not suck."
   (let* ((Nb aes-Nb) (Nk aes-Nk) (buffer (current-buffer)) (nonb64 nil)
@@ -131,7 +152,7 @@ This function does not suck."
          (type aes-default-method)
          (group (or (aes-exec-passws-hooks (buffer-file-name buffer))
                     (buffer-name buffer)))
-         (key (aes-str-to-b (rq--aes-key-from-password password group Nk)))
+         (key (aes-str-to-b (private--aes-key-from-password password group Nk)))
          (keys (aes-KeyExpansion key Nb))
          (iv (let* ((x (make-string (lsh Nb 2) 0))
                     (aes-user-interaction-entropy nil)
@@ -168,7 +189,7 @@ This function does not suck."
           (setq buffer-undo-list))
       t)))
 
-(defun rq--aes-decrypt-current-buffer (password)
+(defun private--aes-decrypt-current-buffer (password)
   "Decrypt current buffer with PASSWORD.
 This function does not suck."
   (let* ((buffer (current-buffer))
@@ -201,7 +222,7 @@ This function does not suck."
             (group (or (aes-exec-passws-hooks
                         (buffer-file-name buffer))
                        (buffer-name buffer)))
-            (key (aes-str-to-b (rq--aes-key-from-password password group Nk)))
+            (key (aes-str-to-b (private--aes-key-from-password password group Nk)))
             (keys (aes-KeyExpansion key Nb))
             (res (if (equal type "CBC")
                      (aes-cbc-decrypt enc iv (nreverse keys) Nb)
@@ -230,66 +251,73 @@ This function does not suck."
            (if multibyte (set-buffer-multibyte t))
            t))))))
 
-(defun require-private ()
+(defun private-require (&optional package-name)
   "Require private configurations which located at '~/.emacs.d/private'.
 If the private folder does not exist, create by default."
   (interactive)
-  (if (and (file-exists-p user-private-config-directory)
-           (file-directory-p user-private-config-directory))
-      (rq--load-directory user-private-config-directory)
-    (if (not (file-exists-p user-private-config-directory))
-        (make-directory user-private-config-directory)
+  (if (and (file-exists-p private-config-directory)
+           (file-directory-p private-config-directory))
+      (or (member 'private-config-directory load-path)
+          (add-to-list 'load-path 'private-config-directory))
+    (if package-name
+        (require package-name)
+      (private--load-directory private-config-directory))
+    (if (not (file-exists-p private-config-directory))
+        (make-directory private-config-directory)
       (error "You may delete %s by hand in order
-to use private package features." user-private-config-directory))))
+to use private package features." private-config-directory))))
 
-(defun find-private-configuration-file ()
+(defun private-find-configuration-file ()
   "Visit or create private configuration file."
   (interactive)
-  (if (not (file-exists-p user-private-config-directory))
-      (make-directory user-private-config-directory))
-  (ido-find-file-in-dir user-private-config-directory))
+  (if (not (file-exists-p private-config-directory))
+      (make-directory private-config-directory))
+  (ido-find-file-in-dir private-config-directory))
 
-(defun clear-private-backup (sure remove-or-trash)
+;;;###autoload
+(defun private-clear-backup (sure remove-or-trash)
   "Delete all private backup files."
   (interactive (list (yes-or-no-p "Are you sure? ")
                      (completing-read "Remove or trash: "
                                       (list "remove" "trash")
                                       nil nil nil nil
                                       "trash")))
-  (and sure (file-directory-p user-private-backup-directory)
+  (and sure (file-directory-p private-backup-directory)
        (progn
-         (delete-directory user-private-backup-directory t
+         (delete-directory private-backup-directory t
                            (if (string= "trash" remove-or-trash)
                                t nil))
-         (rq--create-backup-dir))))
+         (private--create-backup-dir))))
 
-(defun backup-private (password confirm)
+;;;###autoload
+(defun private-backup (password confirm)
   "Backup all private files."
   (interactive "sEnter password: \nsConfirm password: ")
-  (rq--create-backup-dir)
+  (private--create-backup-dir)
   (unless (string= password confirm)
     (error "Password not consistent."))
-  (dolist (file (directory-files user-private-config-directory t "^[^.]"))
-    (if (file-exists-p (rq--backup-file-name file))
+  (dolist (file (directory-files private-config-directory t "^[^.]"))
+    (if (file-exists-p (private--backup-file-name file))
         (message "File exists at: '%s', won't backup '%s'."
-                 (rq--backup-file-name file) file)
-      (copy-file file (rq--backup-file-name file))
-      (with-current-buffer (find-file-noselect (rq--backup-file-name file))
-        (rq--aes-encrypt-current-buffer password)
+                 (private--backup-file-name file) file)
+      (copy-file file (private--backup-file-name file))
+      (with-current-buffer (find-file-noselect (private--backup-file-name file))
+        (private--aes-encrypt-current-buffer password)
         (save-buffer)
         (kill-buffer)))))
 
-(defun recover-private (password)
+;;;###autoload
+(defun private-restore (password)
   "Recover all private files."
   (interactive "sEnter password: ")
-  (rq--create-backup-dir)
-  (dolist (file (directory-files user-private-backup-directory t "^[^.]"))
-    (if (file-exists-p (rq--config-file-name file))
+  (private--create-backup-dir)
+  (dolist (file (directory-files private-backup-directory t "^[^.]"))
+    (if (file-exists-p (private--config-file-name file))
         (message "File exists at: '%s', won't recover '%s'."
-                 (rq--config-file-name file) file)
-      (copy-file file (rq--config-file-name file))
-      (with-current-buffer (find-file-noselect (rq--config-file-name file))
-        (rq--aes-decrypt-current-buffer password)
+                 (private--config-file-name file) file)
+      (copy-file file (private--config-file-name file))
+      (with-current-buffer (find-file-noselect (private--config-file-name file))
+        (private--aes-decrypt-current-buffer password)
         (save-buffer)
         (kill-buffer)))))
 

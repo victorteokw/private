@@ -30,15 +30,18 @@
 ;; configuration, corporation code, personal project code, etc.
 ;;
 ;; How private works?
+;;
 ;; Private works by encrypt private configuration files with a password
 ;; you specified.
 ;;
 ;; Usage:
 ;;
-;; Put every private configuration into ~/.emacs.d/private
-;; and make git ignoring the private dir.
-;; (private-require)
+;; Put every private configuration into a private configuration directory
+;; default to '~/.emacs.d/private'.
+;; and make git ignoring this directory.
+;; (private-require &optional package)
 ;; This function requires all your private configuration files.
+;; If package name is specified, require just that package.
 ;; (private-find-configuration-file)
 ;; This function creates or visits a private configuration file.
 ;; (private-backup)
@@ -252,7 +255,8 @@ This function does not suck."
            t))))))
 
 (defun private-require (&optional package-name)
-  "Require private configurations which located at '~/.emacs.d/private'.
+  "Require private configurations which located at `private-config-directory'
+ default to'~/.emacs.d/private'.
 If the private folder does not exist, create by default."
   (interactive)
   (if (and (file-exists-p private-config-directory)
@@ -302,9 +306,11 @@ to use private package features." private-config-directory))))
                  (private--backup-file-name file) file)
       (copy-file file (private--backup-file-name file))
       (with-current-buffer (find-file-noselect (private--backup-file-name file))
-        (private--aes-encrypt-current-buffer password)
-        (save-buffer)
-        (kill-buffer)))))
+        (unwind-protect
+            (progn
+              (private--aes-encrypt-current-buffer password)
+              (save-buffer))
+          (kill-buffer))))))
 
 ;;;###autoload
 (defun private-restore (password)
@@ -317,9 +323,11 @@ to use private package features." private-config-directory))))
                  (private--config-file-name file) file)
       (copy-file file (private--config-file-name file))
       (with-current-buffer (find-file-noselect (private--config-file-name file))
-        (private--aes-decrypt-current-buffer password)
-        (save-buffer)
-        (kill-buffer)))))
+        (unwind-protect
+            (progn
+              (private--aes-decrypt-current-buffer password)
+              (save-buffer))
+          (kill-buffer))))))
 
 (provide 'private)
 ;;; private.el ends here
